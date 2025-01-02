@@ -1,0 +1,23 @@
+
+version = 0.1
+[default]
+[default.global.parameters]
+stack_name = "dmh-saml-app"
+
+[default.deploy.parameters]
+stack_name = "dmh-saml-app"
+s3_bucket = "aws-dev1-dl-stack"
+s3_prefix = "dmh-saml-app"
+region = "eu-west-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+image_repositories = []
+
+[default.sync.parameters]
+watch = true
+
+[default.local_start_api.parameters]
+warm_containers = "EAGER"
+
+[default.local_start_lambda.parameters]
+warm_containers = "EAGER"
