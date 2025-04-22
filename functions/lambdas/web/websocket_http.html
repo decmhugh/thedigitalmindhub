@@ -7,6 +7,7 @@
 <body>
   <h1>Real-time Transcription Demo</h1>
   <button onclick="startAudio()">Start Streaming</button>
+  <button onclick="stopAudio()">Stop Streaming</button> <!-- Added stop button -->
   <pre id="transcript"></pre>
 
   <script>
@@ -38,21 +39,39 @@
 
       ws.onopen = () => console.log('WebSocket Connected');
 
+      ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        if (message.transcription) {
+          document.getElementById('transcript').textContent += message.transcription + '\n';
+        }
+      };
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      audioContext = new (window.AudioContext || window.webkitAudioContext)(); // Explicitly set sample rate to 16000
       const source = audioContext.createMediaStreamSource(stream);
 
       processor = audioContext.createScriptProcessor(4096, 1, 1);
       processor.onaudioprocess = function(e) {
         const float32Data = e.inputBuffer.getChannelData(0);
         const int16Data = convertFloat32ToInt16(float32Data);
-        sendAudio(JSON.stringify({
-            "audioData": int16Data
-          }));
+        sendAudio(int16Data);
       };
 
       source.connect(processor);
       processor.connect(audioContext.destination);
+    }
+
+    function stopAudio() {
+      if (processor) {
+        processor.disconnect();
+      }
+      if (audioContext) {
+        audioContext.close();
+      }
+      if (ws) {
+        ws.close();
+        console.log('WebSocket Disconnected');
+      }
     }
   </script>
 </body>

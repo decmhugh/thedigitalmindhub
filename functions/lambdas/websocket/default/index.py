@@ -9,7 +9,12 @@ def lambda_handler(event, context):
         print(event)
         connection_id = event['requestContext']['connectionId']
         body = json.loads(event.get('body', '{}'))
-        audio_data = body.get('data')
+        audio_data = body.get('audioData',body.get('data',''))
+        if not audio_data:
+            return {
+                "statusCode": 200,
+                "body": json.dumps({"error": "No audio data provided"})
+            }
         audio_base64 = base64.b64decode(audio_data)
         payload = {
             "session_id": connection_id,
