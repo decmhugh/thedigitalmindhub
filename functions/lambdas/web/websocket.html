@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Example</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <h1>WebSocket Connection</h1>
+    <button id="sendMessage">Send Message</button>
+    <button id="startRecording">Start Recording</button>
+    <button id="stopRecording" disabled>Stop Recording</button>
+    <div id="messages"></div>
+    
+    <script>
+        $(document).ready(function () {
+            const apiKey = 'ZC1iOriUNJbUTf0nb0q4USfZLIwh855mvpIhv7b0'; // Replace with your actual API key
+            var socket = new WebSocket('wss://mqmdt7xebl.execute-api.eu-west-1.amazonaws.com/dev/');
+            socket.binaryType = 'arraybuffer';
+            socket.onopen = function () {
+                $('#messages').append('<p>WebSocket connection established.</p>');
+            };
+
+            socket.onerror = function (error) {
+                $('#messages').append('<p>Error occurred: ' + error + '</p>');
+            };
+
+            socket.onmessage = function (event) {
+                $('#messages').append('<p>Message received: ' + event.data + '</p>');
+            };
+
+            socket.onclose = function () {
+                $('#messages').append('<p>WebSocket connection closed.</p>');
+            };
+
+            $('#sendMessage').click(function () {
+                if (socket.readyState === WebSocket.OPEN) {
+                    
+                    const payload = {
+                        action: 'audio2',
+                        data: message
+                    };
+                    socket.send(JSON.stringify(payload));
+                    $('#messages').append('<p>Message sent: ' + message + '</p>');
+                } else {
+                    $('#messages').append('<p>WebSocket is not open.</p>');
+                }
+            });
+
+            let mediaRecorder;
+            let recordingStartTime; // Timestamp for recording start time
+            var audioChunks = [];
+            recordingStartTime = new Date().toISOString();
+            $('#startRecording').click(async function () {
+                 
+                
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+
+                    // Set binary type to handle raw audio data
+                    socket.binaryType = "arraybuffer";
+
+                    // Request access to the microphone
+                    navigator.mediaDevices.getUserMedia({ audio: true })
+                        .then(async stream => {
+                            var audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                            var source = audioContext.createMediaStreamSource(stream);
+                            var cnt = 0;
+                            // Define the AudioProcessor class inline as a Blob.
+                            const processorCode = `
+                                class AudioProcessor extends AudioWorkletProcessor {
+                                    constructor() {
+                                        super();
+                                        this.buffer = []; // Buffer to accumulate audio samples
+                                        this.bufferSize = 4096; // Adjust this value to increase the sample size
+                                    }
+
+                                    process(inputs, outputs, parameters) {
+                                        const input = inputs[0];
+                                        if (input && input[0]) {
+                                            // Accumulate audio samples in the buffer
+                                            this.buffer.push(...input[0]);
+
+                                            // Check if the buffer has reached the desired size
+                                            if (this.buffer.length >= this.bufferSize) {
+                                                // Send the accumulated audio data to the main thread
+                                                const chunk = this.buffer.slice(0, this.bufferSize);
+                                                this.port.postMessage(chunk);
+                                                this.buffer = this.buffer.slice(this.bufferSize); // Keep the remaining samples
+                                            }
+                                        }
+                                        return true; // Keep the processor alive
+                                    }
+                                }
+                                registerProcessor('audio-processor', AudioProcessor);
+                            `;
+                            const blob = new Blob([processorCode], { type: 'application/javascript' });
+                            const url = URL.createObjectURL(blob);
+
+                            // Load the processor module into the audio context.
+                            await audioContext.audioWorklet.addModule(url);
+
+                            // Create an AudioWorkletNode.
+                            var audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+
+                            // Listen for messages from the processor.
+                            audioWorkletNode.port.onmessage = function(event) {
+                                var float32Array = event.data; // Assuming the processor sends Float32Array
+                                if (float32Array && float32Array.length > 0) {
+                                    // Convert Float32Array to Int16Array for better compatibility
+                                    var int16Array = new Int16Array(float32Array.length);
+                                    for (var i = 0; i < float32Array.length; i++) {
+                                        int16Array[i] = Math.max(-32768, Math.min(32767, float32Array[i] * 32768));
+                                    }
+
+                                    // Convert Int16Array to Base64 string
+                                    var uint8Array = new Uint8Array(int16Array.buffer);
+                                    var base64String = btoa(String.fromCharCode.apply(null, uint8Array));
+
+                                    // Send audio data if WebSocket is open
+                                    if (socket.readyState === WebSocket.OPEN) {
+                                        const payload = JSON.stringify({
+                                            action: 'sample1',
+                                            cnt: cnt++,
+                                            recordingStartTime:recordingStartTime,
+                                            data: base64String
+                                        });
+                                        cnt = cnt+1;
+                                        socket.send(payload);
+                                    }
+                                }
+                            };
+
+                            // Connect the audio graph.
+                            source.connect(audioWorkletNode).connect(audioContext.destination);
+                        })
+                        .catch(error => {
+                            console.error("Error accessing the microphone:", error);
+                        });
+
+                    mediaRecorder.start();
+                    $('#startRecording').prop('disabled', true);
+                    $('#stopRecording').prop('disabled', false);
+                    $('#messages').append('<p>Recording started.</p>');
+                } catch (error) {
+                    $('#messages').append('<p>Error accessing microphone: ' + error.message + '</p>');
+                }
+            });
+
+            $('#stopRecording').click(function () {
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                    $('#startRecording').prop('disabled', false);
+                    $('#stopRecording').prop('disabled', true);
+
+                    // Send all recorded audio chunks as a single payload.
+                    if (socket.readyState === WebSocket.OPEN) {
+                        const payload = JSON.stringify({
+                            action: 'audio2',
+                            data: audioChunks
+                        });
+                        socket.send(payload);
+                    }
+
+                    $('#messages').append('<p>Recording stopped.</p>');
+                    audioChunks = []; // Clear the audio chunks after sending.
+                }
+            });
+        });
+    </script>
+</body>
+</html>

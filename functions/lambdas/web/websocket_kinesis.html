@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Example</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <h1>WebSocket Connection</h1>
+    <button id="sendMessage">Send Message</button>
+    <button id="startRecording">Start Recording</button>
+    <button id="stopRecording" disabled>Stop Recording</button>
+    <div id="messages"></div>
+    
+    <script>
+        $(document).ready(function () {
+            const apiKey = 'ZC1iOriUNJbUTf0nb0q4USfZLIwh855mvpIhv7b0'; // Replace with your actual API key
+            var socket = new WebSocket('wss://mqmdt7xebl.execute-api.eu-west-1.amazonaws.com/dev/');
+            socket.binaryType = 'arraybuffer';
+            socket.onopen = function () {
+                $('#messages').append('<p>WebSocket connection established.</p>');
+            };
+
+            socket.onerror = function (error) {
+                $('#messages').append('<p>Error occurred: ' + error + '</p>');
+            };
+
+            socket.onmessage = function (event) {
+                $('#messages').append('<p>Message received: ' + event.data + '</p>');
+            };
+
+            socket.onclose = function () {
+                $('#messages').append('<p>WebSocket connection closed.</p>');
+            };
+
+            $('#sendMessage').click(function () {
+                if (socket.readyState === WebSocket.OPEN) {
+                    
+                    const payload = {
+                        action: 'audio2',
+                        data: message
+                    };
+                    socket.send(JSON.stringify(payload));
+                    $('#messages').append('<p>Message sent: ' + message + '</p>');
+                } else {
+                    $('#messages').append('<p>WebSocket is not open.</p>');
+                }
+            });
+
+            const apiEndpoint = 'https://your-api-id.execute-api.region.amazonaws.com/production/audio'; // Replace with your API endpoint
+
+            let mediaRecorder;
+            let audioChunks = [];
+
+            $('#startRecording').click(async function () {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+
+                    mediaRecorder.ondataavailable = function (event) {
+                        if (event.data.size > 0) {
+                            audioChunks.push(event.data);
+                        }
+                    };
+
+                    mediaRecorder.onstop = async function () {
+                        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                        const formData = new FormData();
+                        formData.append('file', blob);
+
+                        try {
+                            const response = await fetch(apiEndpoint, {
+                                method: 'POST',
+                                body: formData,
+                            });
+
+                            if (response.ok) {
+                                $('#messages').append('<p>Audio sent successfully.</p>');
+                            } else {
+                                $('#messages').append('<p>Error sending audio: ' + response.statusText + '</p>');
+                            }
+                        } catch (error) {
+                            $('#messages').append('<p>Error sending audio: ' + error.message + '</p>');
+                        }
+
+                        audioChunks = [];
+                    };
+
+                    mediaRecorder.start();
+                    $('#startRecording').prop('disabled', true);
+                    $('#stopRecording').prop('disabled', false);
+                    $('#messages').append('<p>Recording started.</p>');
+                } catch (error) {
+                    $('#messages').append('<p>Error accessing microphone: ' + error.message + '</p>');
+                }
+            });
+
+            $('#stopRecording').click(function () {
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                    $('#startRecording').prop('disabled', false);
+                    $('#stopRecording').prop('disabled', true);
+                    $('#messages').append('<p>Recording stopped.</p>');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+pip install awscrt --target .\functions\lambdas\websocket\default --platform manylinux2014_x86_64 --no-deps

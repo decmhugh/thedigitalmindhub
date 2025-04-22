@@ -1,0 +1,142 @@
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Effect": "Allow",
+			"Action": [
+				"ec2:DescribeSubnets",
+				"ec2:DescribeVpcs",
+				"iam:ListRoles",
+				"iam:ListInstanceProfilesForRole",
+				"iam:AddRoleToInstanceProfile",
+				"ssm:StartSession",
+				"cloud9:*",
+				"kinesis:*",
+				"cloudwatch:*",
+				"firehose:*",
+				"glue:*",
+				"s3:*",
+				"iam:CreateRole",
+				"iam:ListRolePolicies",
+				"iam:GetRole",
+				"iam:ListPolicies",
+				"iam:GetPolicyVersion",
+				"iam:GetPolicy",
+				"iam:CreatePolicy",
+				"iam:AttachRolePolicy",
+				"iam:CreatePolicyVersion",
+				"iam:DeletePolicyVersion",
+				"iam:DetachRolePolicy",
+				"iam:ListAttachedRolePolicies",
+				"iam:ListPolicyVersions",
+				"iam:ListInstanceProfiles",
+				"iam:GetInstanceProfile",
+				"iam:DeleteRole",
+				"iam:ListEntitiesForPolicy",
+				"iam:CreateInstanceProfile",
+				"logs:*",
+				"kinesisanalytics:*",
+				"athena:*",
+				"quicksight:*",
+				"sso:GetManagedApplicationInstance",
+				"sso:CreateManagedApplicationInstance",
+				"sso:DeleteManagedApplicationInstance",
+				"sso:SearchGroups",
+				"sso:GetProfile",
+				"sso:AssociateProfile",
+				"sso:DisassociateProfile",
+				"sso:ListProfiles",
+				"sso:ListDirectoryAssociations",
+				"sso:DescribeRegisteredRegions",
+				"ds:AuthorizeApplication",
+				"ds:UnauthorizeApplication",
+				"ds:CheckAlias",
+				"ds:CreateAlias",
+				"ds:DescribeDirectories",
+				"ds:DescribeTrusts",
+				"ds:DeleteDirectory",
+				"ds:CreateIdentityPoolDirectory",
+				"sagemaker:*Notebook*",
+				"sagemaker:CreateUserProfile",
+				"sagemaker:DeleteUserProfile",
+				"sagemaker:ListUserProfiles",
+				"sagemaker:DescribeUserProfile",
+				"sagemaker:CreateDomain",
+				"sagemaker:DeleteDomain",
+				"sagemaker:ListDomains",
+				"sagemaker:DescribeDomain",
+				"sagemaker:UpdateDomain",
+				"sagemaker:CreatePresignedDomainUrl",
+				"sagemaker:ListCodeRepositories",
+				"kms:ListAliases",
+				"sagemaker:ListTags"
+			],
+			"Resource": "*"
+		},
+		{
+			"Effect": "Allow",
+			"Action": "iam:PassRole",
+			"Resource": [
+				"arn:aws:iam::*:role/Service*",
+				"arn:aws:iam::*:role/service-role/AWSCloud9SSMAccessRole",
+				"arn:aws:iam::*:role/AWSApplicationDiscoveryServiceFirehose",
+				"arn:aws:iam::*:role/service-role/AWSApplicationDiscoveryServiceFirehose",
+				"arn:aws:iam::*:role/service-role/KinesisFirehoseServiceRole*",
+				"arn:aws:iam::*:role/service-role/AWSGlueServiceRole*"
+			],
+			"Condition": {
+				"StringEquals": {
+					"iam:PassedToService": [
+						"glue.amazonaws.com",
+						"sagemaker.amazonaws.com",
+						"cloud9.amazonaws.com",
+						"ec2.amazonaws.com",
+						"firehose.amazonaws.com"
+					]
+				}
+			}
+		},
+		{
+			"Effect": "Allow",
+			"Action": "iam:AttachRolePolicy",
+			"Resource": "*",
+			"Condition": {
+				"StringNotEqualsIfExists": {
+					"iam:PolicyArn": [
+						"arn:aws:iam::aws:policy/AdministratorAccess",
+						"arn:aws:iam::aws:policy/PowerUserAccess",
+						"arn:aws:iam::aws:policy/FullAccess"
+					]
+				}
+			}
+		},
+		{
+			"Effect": "Deny",
+			"Action": [
+				"iam:AttachRolePolicy"
+			],
+			"Resource": "*",
+			"Condition": {
+				"StringEqualsIfExists": {
+					"iam:PolicyArn": [
+						"arn:aws:iam::aws:policy/AdministratorAccess",
+						"arn:aws:iam::aws:policy/PowerUserAccess",
+						"arn:aws:iam::aws:policy/FullAccess"
+					]
+				}
+			}
+		},
+		{
+			"Effect": "Allow",
+			"Action": [
+				"iam:CreateServiceLinkedRole"
+			],
+			"Resource": "*",
+			"Condition": {
+				"StringLike": {
+					"iam:AWSServiceName": "cloud9.amazonaws.com"
+				}
+			}
+		}
+	]
+}

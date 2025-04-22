@@ -1,0 +1,241 @@
+Transform: AWS::Serverless-2016-10-31
+Parameters:
+  StageName:
+    Type: String
+    Default: production
+    Description: The stage name for the API Gateway.
+
+Resources:
+  RestApi:
+    Type: AWS::Serverless::Api  
+    Properties:
+      Name: MyServerlessApi
+      StageName: default
+      Auth:
+        DefaultAuthorizer: LambdaAuthorizer
+        Authorizers:
+          LambdaAuthorizer:
+            FunctionArn: !GetAtt LambdaAuthorizerFunction.Arn
+            IdentitySource: method.request.header.Authorization
+            FunctionPayloadType: REQUEST
+            Identity:
+              Headers:
+                - Authorization
+      AccessLogSetting:
+        DestinationArn: !GetAtt ApiGatewayLogGroup.Arn
+        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","caller":"$context.identity.caller","user":"$context.identity.user","requestTime":"$context.requestTime","httpMethod":"$context.httpMethod","resourcePath":"$context.resourcePath","status":"$context.status","protocol":"$context.protocol","responseLength":"$context.responseLength"}'
+
+  ApiGatewayLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/apigateway/MyServerlessApi
+      RetentionInDays: 14
+
+  APIGatewayCloudWatchLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: APIGatewayLogsPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:*
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/apigateway/*:*"
+
+  LambdaAuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      CodeUri: functions/lambdas/auth/
+      Role: !GetAtt LambdaExecutionRole.Arn
+
+  LambdaAuthorizerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt LambdaAuthorizerFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*/*"
+
+
+  GetLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      CodeUri: functions/lambdas/get/
+      Role: !GetAtt LambdaExecutionRole.Arn
+  
+  GetLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt GetLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*/*"
+
+
+
+  PostLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: post.lambda_handler
+      Runtime: python3.9
+      CodeUri: functions/lambdas/post/
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          API_ENDPOINT: "https://rd73waehdc.execute-api.eu-west-1.amazonaws.com/default"
+  
+  PostLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt PostLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*/*"
+
+
+  WebLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      CodeUri: functions/lambdas/web/
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /web
+            Method: GET
+            RestApiId: !Ref RestApi
+
+  WebLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt WebLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*/*"
+
+
+  WebSocketApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: MyWebSocketApi
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+      ApiKeySelectionExpression: "$request.header.x-api-key" # Added to require API key
+
+  WebSocketLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/apigateway/MyWebSocketApi
+      RetentionInDays: 14
+
+  WebSocketStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref WebSocketApi
+      StageName: dev
+      AutoDeploy: true
+      AccessLogSettings:
+        DestinationArn: !GetAtt WebSocketLogGroup.Arn
+        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","caller":"$context.identity.caller","user":"$context.identity.user","requestTime":"$context.requestTime","httpMethod":"$context.httpMethod","routeKey":"$context.routeKey","status":"$context.status","protocol":"$context.protocol","responseLength":"$context.responseLength"}'
+
+  WebSocketRouteLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: route.lambda_handler
+      Runtime: python3.9
+      #CodeUri: functions/lambdas/websocket/route/
+      CodeUri: functions/lambdas/get/
+      Role: !GetAtt LambdaExecutionRole.Arn
+
+  WebSocketRouteIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebSocketRouteLambda.Arn}/invocations"
+
+  WebSocketRoutePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt WebSocketRouteLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*"
+
+  WebSocketRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: $connect
+      Target: !Sub "integrations/${WebSocketRouteIntegration}"
+      AuthorizationType: NONE
+      ApiKeyRequired: true # Added to enforce API key requirement
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - execute-api:Invoke
+                Resource: "arn:aws:logs:*:*:*"
+        - PolicyName: ApiGatewayLogPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/apigateway/MyServerlessApi:*"
+
+Outputs:
+  ApiUrl:
+    Description: URL of the API Gateway
+    Value: !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/default"
+    Export:
+      Name: ApiGatewayUrl
+
+  WebSocketApiUrl:
+    Description: URL of the WebSocket API Gateway
+    Value: "wss://mqmdt7xebl.execute-api.eu-west-1.amazonaws.com/demo/"
+    Export:
+      Name: WebSocketApiGatewayUrl
+
+  WebSocketConnectionsUrl:
+    Description: URL for WebSocket @connections
+    Value: "https://mqmdt7xebl.execute-api.eu-west-1.amazonaws.com/demo/@connections"
+    Export:
+      Name: WebSocketConnectionsUrl
+

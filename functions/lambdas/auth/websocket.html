@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Example</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <h1>WebSocket Connection</h1>
+    <div id="messages"></div>
+    <button id="sendMessage">Send Message</button>
+    <button id="startRecording">Start Recording</button>
+    <button id="stopRecording" disabled>Stop Recording</button>
+
+    <script>
+        $(document).ready(function () {
+            const socket = new WebSocket('wss://your-api-gateway-websocket-url');
+
+            socket.onopen = function () {
+                $('#messages').append('<p>WebSocket connection established.</p>');
+            };
+
+            socket.onmessage = function (event) {
+                $('#messages').append('<p>Message received: ' + event.data + '</p>');
+            };
+
+            socket.onclose = function () {
+                $('#messages').append('<p>WebSocket connection closed.</p>');
+            };
+
+            $('#sendMessage').click(function () {
+                if (socket.readyState === WebSocket.OPEN) {
+                    const message = 'Hello, WebSocket!';
+                    socket.send(message);
+                    $('#messages').append('<p>Message sent: ' + message + '</p>');
+                } else {
+                    $('#messages').append('<p>WebSocket is not open.</p>');
+                }
+            });
+
+            let mediaRecorder;
+            let audioChunks = [];
+
+            $('#startRecording').click(async function () {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+
+                    mediaRecorder.ondataavailable = function (event) {
+                        audioChunks.push(event.data);
+                    };
+
+                    mediaRecorder.onstop = function () {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        if (socket.readyState === WebSocket.OPEN) {
+                            socket.send(audioBlob);
+                            $('#messages').append('<p>Audio data sent to WebSocket.</p>');
+                        } else {
+                            $('#messages').append('<p>WebSocket is not open. Audio data not sent.</p>');
+                        }
+                        audioChunks = [];
+                    };
+
+                    mediaRecorder.start();
+                    $('#startRecording').prop('disabled', true);
+                    $('#stopRecording').prop('disabled', false);
+                    $('#messages').append('<p>Recording started.</p>');
+                } catch (error) {
+                    $('#messages').append('<p>Error accessing microphone: ' + error.message + '</p>');
+                }
+            });
+
+            $('#stopRecording').click(function () {
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                    $('#startRecording').prop('disabled', false);
+                    $('#stopRecording').prop('disabled', true);
+                    $('#messages').append('<p>Recording stopped.</p>');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

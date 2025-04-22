@@ -1,158 +1,197 @@
 Description: CloudFormation template to create AWS Lake Formation workshop resources
 
-Mappings:
-  SubnetConfig:
-    VPC:
-      CIDR: 10.0.0.0/16
-    PublicOne:
-      CIDR: 10.0.0.0/24
-    PublicTwo:
-      CIDR: 10.0.1.0/24
-    Private:
-      CIDR: 10.0.2.0/24
 
 Resources:
-  LakeFormationVPC:
-    Type: 'AWS::EC2::VPC'
+   
+  GlueCrawler:
+    Type: 'AWS::Glue::Crawler'
     Properties:
-      CidrBlock: !FindInMap 
-        - SubnetConfig
-        - VPC
-        - CIDR
-      InstanceTenancy: default
-      EnableDnsSupport: 'true'
-      EnableDnsHostnames: 'true'
-      Tags:
-        - Key: Name
-          Value: LF-Workshop-VPC
-  PrivateSubnet:
-    Type: 'AWS::EC2::Subnet'
-    Properties:
-      CidrBlock: !FindInMap 
-        - SubnetConfig
-        - Private
-        - CIDR
-      MapPublicIpOnLaunch: 'true'
-      AvailabilityZone: !Select 
-        - 1
-        - !GetAZs 
-          Ref: 'AWS::Region'
-      VpcId: !Ref LakeFormationVPC
-      Tags:
-        - Key: Name
-          Value: LF-Workshop-PrivateSubnet
-  PublicSubnetOne:
-    Type: 'AWS::EC2::Subnet'
-    Properties:
-      CidrBlock: !FindInMap 
-        - SubnetConfig
-        - PublicOne
-        - CIDR
-      MapPublicIpOnLaunch: 'true'
-      AvailabilityZone: !Select 
-        - 0
-        - !GetAZs 
-          Ref: 'AWS::Region'
-      VpcId: !Ref LakeFormationVPC
-      Tags:
-        - Key: Name
-          Value: LF-Workshop-PublicSubnetOne
-  PublicSubnetTwo:
-    Type: 'AWS::EC2::Subnet'
-    Properties:
-      CidrBlock: !FindInMap 
-        - SubnetConfig
-        - PublicTwo
-        - CIDR
-      MapPublicIpOnLaunch: 'true'
-      AvailabilityZone: !Select 
-        - 1
-        - !GetAZs 
-          Ref: 'AWS::Region'
-      VpcId: !Ref LakeFormationVPC
-      Tags:
-        - Key: Name
-          Value: LF-Workshop-PublicSubnetTwo
-  InternetGateway:
-    Type: 'AWS::EC2::InternetGateway'
-    Properties:
-      Tags:
-        - Key: Name
-          Value: LF-Workshop-IG
-  VPCGatewayAttachment:
-    Type: 'AWS::EC2::VPCGatewayAttachment'
-    Properties:
-      VpcId: !Ref LakeFormationVPC
-      InternetGatewayId: !Ref InternetGateway
-  InternetGatewayRouteTable:
-    Type: 'AWS::EC2::RouteTable'
-    Properties:
-      VpcId: !Ref LakeFormationVPC
-  InternetGatewayRoute:
-    Type: 'AWS::EC2::Route'
-    DependsOn: VPCGatewayAttachment
-    Properties:
-      DestinationCidrBlock: 0.0.0.0/0
-      RouteTableId: !Ref InternetGatewayRouteTable
-      GatewayId: !Ref InternetGateway
-  PublicSubnetOneRouteTableAssociation:
-    Type: 'AWS::EC2::SubnetRouteTableAssociation'
-    Properties:
-      RouteTableId: !Ref InternetGatewayRouteTable
-      SubnetId: !Ref PublicSubnetOne
-  PublicSubnetTwoRouteTableAssociation:
-    Type: 'AWS::EC2::SubnetRouteTableAssociation'
-    Properties:
-      RouteTableId: !Ref InternetGatewayRouteTable
-      SubnetId: !Ref PublicSubnetTwo
-  NATGatewayAttachment:
-    Type: 'AWS::EC2::EIP'
-    DependsOn: VPCGatewayAttachment
-    Properties:
-      Domain: vpc
-  NATGateway:
-    Type: 'AWS::EC2::NatGateway'
-    Properties:
-      SubnetId: !Ref PublicSubnetOne
-      AllocationId: !GetAtt 
-        - NATGatewayAttachment
-        - AllocationId
-      Tags:
-        - Key: Name
-          Value: LF-NAT-Gateway
-  NATGatewayRouteTable:
-    Type: 'AWS::EC2::RouteTable'
-    Properties:
-      VpcId: !Ref LakeFormationVPC
-      Tags:
-        - Key: Name
-          Value: LF-NAT-RouteTable
-  NATGatewayRoute:
-    Type: 'AWS::EC2::Route'
-    Properties:
-      DestinationCidrBlock: 0.0.0.0/0
-      RouteTableId: !Ref NATGatewayRouteTable
-      NatGatewayId: !Ref NATGateway
-  PrivateSubnetRouteTableAssociation:
-    Type: 'AWS::EC2::SubnetRouteTableAssociation'
-    Properties:
-      RouteTableId: !Ref NATGatewayRouteTable
-      SubnetId: !Ref PrivateSubnet
-  S3Endpoint:
+      DatabaseName: tpc
+      Description: AWS Glue Crawler to crawl parquet data
+      Name: TPC Crawler
+      Role: !GetAtt 
+        - GlueServiceRole
+        - Arn
+      Targets:
+        S3Targets:
+          - Path: !Join 
+              - ''
+              - - !Ref DataLakeBucket
+                - /tpcparquet/
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
+
+  VPCEndpointSagemakerAPI:
     Type: 'AWS::EC2::VPCEndpoint'
     Properties:
       PolicyDocument:
         Version: 2012-10-17
         Statement:
           - Effect: Allow
-            Action: '*'
             Principal: '*'
+            Action: '*'
             Resource: '*'
-      RouteTableIds:
-        - !Ref NATGatewayRouteTable
-        - !Ref InternetGatewayRouteTable
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
-      VpcId: !Ref LakeFormationVPC
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - 'subnet-0832ef49affa56c35'
+        - 'subnet-06350c9dedc12a6bb'
+      SecurityGroupIds:
+        - 'sg-06acb2e2455a6b238'
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sagemaker.api'
+      VpcId: 'vpc-06ea69257509bf380'
+
+  VPCEndpointSageMakerRuntime:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: '*'
+            Resource: '*'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - 'subnet-0832ef49affa56c35'
+        - 'subnet-06350c9dedc12a6bb'
+      SecurityGroupIds:
+        - 'sg-06acb2e2455a6b238'
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sagemaker.runtime'
+      VpcId: 'vpc-06ea69257509bf380'
+
+  VPCEndpointECR:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: '*'
+            Resource: '*'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - 'subnet-0832ef49affa56c35'
+        - 'subnet-06350c9dedc12a6bb'
+      SecurityGroupIds:
+        - 'sg-06acb2e2455a6b238'
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.dkr'
+      VpcId: 'vpc-06ea69257509bf380'
+
+  VPCEndpointECRAPI:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: '*'
+            Resource: '*'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - 'subnet-0832ef49affa56c35'
+        - 'subnet-06350c9dedc12a6bb'
+      SecurityGroupIds:
+        - 'sg-06acb2e2455a6b238'
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.api'
+      VpcId: 'vpc-06ea69257509bf380'
+
+  SageMakerInstanceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: SageMaker-SecurityGroup
+      GroupDescription: Security group with no ingress rule
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      VpcId: 'vpc-06ea69257509bf380'
+  SageMakerInstanceSecurityGroupIngress:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      IpProtocol: '-1'
+      GroupId: !Ref SageMakerInstanceSecurityGroup
+      SourceSecurityGroupId: !Ref SageMakerInstanceSecurityGroup
+  
+  VPCEndpointSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Allow TLS for VPC Endpoint
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      VpcId: 'vpc-06ea69257509bf380'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-endpoint-security-group'
+  EndpointSecurityGroupIngress:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      IpProtocol: '-1'
+      GroupId: 'sg-06acb2e2455a6b238'
+      SourceSecurityGroupId: !Ref SageMakerInstanceSecurityGroup
+  
+  # GlueDatabase:
+  #   Type: AWS::Glue::Database
+  #   Properties:
+  #     CatalogId: !Sub "LF_${AWS::AccountId}"
+  #     DatabaseInput:
+  #       Name: !Sub "dmh${AWS::AccountId}"
+  #       Description: !Sub "LF_${AWS::AccountId}_DB"
+
+
+  # Create the IAM Role for Redshift Serverless
+  RedshiftServerlessRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "redshift-serverless.amazonaws.com"
+            Action: "sts:AssumeRole"
+      #ManagedPolicyArns:
+      #  - "arn:aws:iam::aws:policy/service-role/AmazonRedshiftServiceRolePolicy"  # Default permissions for Redshift
+
+  # Create Redshift Serverless Namespace
+  # RedshiftServerlessNamespace:
+  #   Type: 'AWS::RedshiftServerless::Namespace'
+  #   Properties:
+  #     NamespaceName: "my-redshift-namespace"
+  #     AdminUsername: "admin"
+  #     AdminUserPassword: "MySecurePassword123"
+  #     Tags:
+  #       - Key: "Environment"
+  #         Value: "Production"
+
+  # # Create Redshift Serverless Workgroup
+  # RedshiftServerlessWorkgroup:
+  #   Type: 'AWS::RedshiftServerless::Workgroup'
+  #   Properties:
+  #     WorkgroupName: "my-redshift-workgroup"
+  #     NamespaceName: !Ref RedshiftServerlessNamespace
+  #     BaseCapacity: 16  # Set the compute capacity (can adjust)
+  #     EnhancedVpcRouting: true
+  #     SubnetIds:
+  #       - 'subnet-0832ef49affa56c35'
+  #       - 'subnet-06350c9dedc12a6bb'
+  #     SecurityGroupIds:
+  #       - 'sg-06acb2e2455a6b238'
+  #     Tags:
+  #       - Key: "Environment"
+  #         Value: "Production"
+
+
   GlueServiceRole:
     Type: 'AWS::IAM::Role'
     Properties:
@@ -169,6 +208,7 @@ Resources:
       ManagedPolicyArns:
         - 'arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole'
         - 'arn:aws:iam::aws:policy/AmazonKinesisFullAccess'
+        #- "arn:aws:iam::aws:policy/service-role/AmazonRedshiftServiceRolePolicy"
       Policies:
         - PolicyName: LF-Data-Lake-Storage-Policy
           PolicyDocument:
@@ -177,16 +217,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - 's3:*'
-                Resource:
-                  - !Join 
-                    - ''
-                    - - 'arn:aws:s3:::'
-                      - !Ref DataLakeBucket
-                      - /*
-                  - !Join 
-                    - ''
-                    - - 'arn:aws:s3:::'
-                      - !Ref DataLakeBucket
+                Resource: '*'
         - PolicyName: Glue-Demo-Access-Policy
           PolicyDocument:
             Version: 2012-10-17
@@ -648,270 +679,224 @@ Resources:
       Path: /
       Roles:
         - !Ref EC2Role
-  BackUpRestoreInstance:
-    Type: 'AWS::EC2::Instance'
-    Properties:
-      InstanceType: t2.small
-      ImageId: !Ref LatestAmiId
-      KeyName: !Ref EEKeyPair
-      IamInstanceProfile: !Ref EC2InstanceProfile
-      NetworkInterfaces:
-        - AssociatePublicIpAddress: 'true'
-          DeviceIndex: '0'
-          SubnetId: !Ref PublicSubnetOne
-      UserData: !Base64 
-        'Fn::Join':
-          - ''
-          - - |
-              #!/bin/bash -ex
-            - |
-              sudo yum -y install mysql
-            - >
-              aws s3 cp
-              s3://aws-data-analytics-workshops/shared_datasets/tpcparquet/
-              /tmp/tpcparquet/ --recursive
-            - 'aws s3 cp /tmp/tpcparquet/ s3://'
-            - !Ref DataLakeBucket
-            - |
-              /tpcparquet/ --recursive
-            - |+
 
-            - >
-              aws s3 cp
-              s3://aws-data-analytics-workshops/lake-formation-workshop/sampledata/tripdata.csv
-              /tmp/
-            - 'aws s3 cp /tmp/tripdata.csv s3://'
-            - !Ref LFWorkshopBucket
-            - |
-              /glue/nyctaxi/
-            - >
-              aws s3 cp
-              s3://aws-data-analytics-workshops/lake-formation-workshop/scripts/nyctaxi-csv-to-json.py
-              /tmp/
-            - 'aws s3 cp /tmp/nyctaxi-csv-to-json.py s3://'
-            - !Ref LFWorkshopBucket
-            - |
-              /glue/scripts/
-
-      Tags:
-        - Key: Name
-          Value: EC2-DB-Loader
-  GlueCrawler:
-    Type: 'AWS::Glue::Crawler'
-    Properties:
-      DatabaseName: tpc
-      Description: AWS Glue Crawler to crawl parquet data
-      Name: TPC Crawler
-      Role: !GetAtt 
-        - GlueServiceRole
-        - Arn
-      Targets:
-        S3Targets:
-          - Path: !Join 
-              - ''
-              - - !Ref DataLakeBucket
-                - /tpcparquet/
-      SchemaChangePolicy:
-        UpdateBehavior: UPDATE_IN_DATABASE
-        DeleteBehavior: LOG
+   
+  # GlueCrawler:
+  #   Type: 'AWS::Glue::Crawler'
+  #   Properties:
+  #     DatabaseName: tpc
+  #     Description: AWS Glue Crawler to crawl parquet data
+  #     Name: TPC Crawler
+  #     Role: !GetAtt 
+  #       - GlueServiceRole
+  #       - Arn
+  #     Targets:
+  #       S3Targets:
+  #         - Path: !Join 
+  #             - ''
+  #             - - !Ref DataLakeBucket
+  #               - /tpcparquet/
+  #     SchemaChangePolicy:
+  #       UpdateBehavior: UPDATE_IN_DATABASE
+  #       DeleteBehavior: LOG
   
   #    OwnerArn: !Sub >-
   #      arn:aws:sts::${AWS::AccountId}:assumed-role/WSParticipantRole/Participant
-  VPCEndpointSagemakerAPI:
-    Type: 'AWS::EC2::VPCEndpoint'
-    Properties:
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal: '*'
-            Action: '*'
-            Resource: '*'
-      VpcEndpointType: Interface
-      PrivateDnsEnabled: true
-      SubnetIds:
-        - !Ref PrivateSubnet
-      SecurityGroupIds:
-        - !Ref VPCEndpointSecurityGroup
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sagemaker.api'
-      VpcId: !Ref LakeFormationVPC
-  VPCEndpointSageMakerRuntime:
-    Type: 'AWS::EC2::VPCEndpoint'
-    Properties:
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal: '*'
-            Action: '*'
-            Resource: '*'
-      VpcEndpointType: Interface
-      PrivateDnsEnabled: true
-      SubnetIds:
-        - !Ref PrivateSubnet
-      SecurityGroupIds:
-        - !Ref VPCEndpointSecurityGroup
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sagemaker.runtime'
-      VpcId: !Ref LakeFormationVPC
-  VPCEndpointSTS:
-    Type: 'AWS::EC2::VPCEndpoint'
-    Properties:
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal: '*'
-            Action: '*'
-            Resource: '*'
-      VpcEndpointType: Interface
-      PrivateDnsEnabled: true
-      SubnetIds:
-        - !Ref PrivateSubnet
-      SecurityGroupIds:
-        - !Ref VPCEndpointSecurityGroup
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sts'
-      VpcId: !Ref LakeFormationVPC
-  VPCEndpointCW:
-    Type: 'AWS::EC2::VPCEndpoint'
-    Properties:
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal: '*'
-            Action: '*'
-            Resource: '*'
-      VpcEndpointType: Interface
-      PrivateDnsEnabled: true
-      SubnetIds:
-        - !Ref PrivateSubnet
-      SecurityGroupIds:
-        - !Ref VPCEndpointSecurityGroup
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.monitoring'
-      VpcId: !Ref LakeFormationVPC
-  VPCEndpointCWL:
-    Type: 'AWS::EC2::VPCEndpoint'
-    Properties:
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal: '*'
-            Action: '*'
-            Resource: '*'
-      VpcEndpointType: Interface
-      PrivateDnsEnabled: true
-      SubnetIds:
-        - !Ref PrivateSubnet
-      SecurityGroupIds:
-        - !Ref VPCEndpointSecurityGroup
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.logs'
-      VpcId: !Ref LakeFormationVPC
-  VPCEndpointECR:
-    Type: 'AWS::EC2::VPCEndpoint'
-    Properties:
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal: '*'
-            Action: '*'
-            Resource: '*'
-      VpcEndpointType: Interface
-      PrivateDnsEnabled: true
-      SubnetIds:
-        - !Ref PrivateSubnet
-      SecurityGroupIds:
-        - !Ref VPCEndpointSecurityGroup
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.dkr'
-      VpcId: !Ref LakeFormationVPC
-  VPCEndpointECRAPI:
-    Type: 'AWS::EC2::VPCEndpoint'
-    Properties:
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal: '*'
-            Action: '*'
-            Resource: '*'
-      VpcEndpointType: Interface
-      PrivateDnsEnabled: true
-      SubnetIds:
-        - !Ref PrivateSubnet
-      SecurityGroupIds:
-        - !Ref VPCEndpointSecurityGroup
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.api'
-      VpcId: !Ref LakeFormationVPC
-  SageMakerInstanceSecurityGroup:
-    Type: 'AWS::EC2::SecurityGroup'
-    Properties:
-      GroupName: SageMaker-SecurityGroup
-      GroupDescription: Security group with no ingress rule
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          FromPort: -1
-          ToPort: -1
-          CidrIp: 0.0.0.0/0
-      VpcId: !Ref LakeFormationVPC
-  SageMakerInstanceSecurityGroupIngress:
-    Type: 'AWS::EC2::SecurityGroupIngress'
-    Properties:
-      IpProtocol: '-1'
-      GroupId: !Ref SageMakerInstanceSecurityGroup
-      SourceSecurityGroupId: !Ref SageMakerInstanceSecurityGroup
-  VPCEndpointSecurityGroup:
-    Type: 'AWS::EC2::SecurityGroup'
-    Properties:
-      GroupDescription: Allow TLS for VPC Endpoint
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          FromPort: -1
-          ToPort: -1
-          CidrIp: 0.0.0.0/0
-      VpcId: !Ref LakeFormationVPC
-      Tags:
-        - Key: Name
-          Value: !Sub '${AWS::StackName}-endpoint-security-group'
-  EndpointSecurityGroupIngress:
-    Type: 'AWS::EC2::SecurityGroupIngress'
-    Properties:
-      IpProtocol: '-1'
-      GroupId: !Ref VPCEndpointSecurityGroup
-      SourceSecurityGroupId: !Ref SageMakerInstanceSecurityGroup
-Outputs:
-  LFDataLakeBucketName:
-    Description: Lake Formation Data Lake Bucket Name
-    Value: !Ref DataLakeBucket
-  LFWorkshopBucketName:
-    Description: Lake Formation Workshop Bucket Name
-    Value: !Ref LFWorkshopBucket
-  AthenaQueryResultLocation:
-    Description: Athena Query Result Location
-    Value: !Join 
-      - ''
-      - - 's3://'
-        - !Ref LFWorkshopBucket
-        - /athena-results/
-  MetadataLocation:
-    Description: Metadata Location
-    Value: !Join 
-      - ''
-      - - 's3://'
-        - !Ref LFWorkshopBucket
-        - /metadata
-  LFUsersCredentials:
-    Description: AWS Secrets Manager Secret Name for all workshop users credentials
-    Value: !Sub >-
-      https://${AWS::Region}.console.aws.amazon.com/secretsmanager/secret?name=${AWS::StackName}-lf-users-credentials
-  ADFSUsersCredentials:
-    Description: AWS Secrets Manager Secret Name for all ADFS users credentials
-    Value: !Sub >-
-      https://${AWS::Region}.console.aws.amazon.com/secretsmanager/secret?name=${AWS::StackName}-adfs-users-credentials
-  ConsoleIAMLoginUrl:
-    Description: Console IAM Login URL to try out different users
-    Value: !Join 
-      - ''
-      - - 'https://'
-        - !Ref 'AWS::AccountId'
-        - .signin.aws.amazon.com/console
+#   VPCEndpointSagemakerAPI:
+#     Type: 'AWS::EC2::VPCEndpoint'
+#     Properties:
+#       PolicyDocument:
+#         Version: 2012-10-17
+#         Statement:
+#           - Effect: Allow
+#             Principal: '*'
+#             Action: '*'
+#             Resource: '*'
+#       VpcEndpointType: Interface
+#       PrivateDnsEnabled: true
+#       SubnetIds:
+#         - !Ref PrivateSubnet
+#       SecurityGroupIds:
+#         - !Ref VPCEndpointSecurityGroup
+#       ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sagemaker.api'
+#       VpcId: !Ref LakeFormationVPC
+#   VPCEndpointSageMakerRuntime:
+#     Type: 'AWS::EC2::VPCEndpoint'
+#     Properties:
+#       PolicyDocument:
+#         Version: 2012-10-17
+#         Statement:
+#           - Effect: Allow
+#             Principal: '*'
+#             Action: '*'
+#             Resource: '*'
+#       VpcEndpointType: Interface
+#       PrivateDnsEnabled: true
+#       SubnetIds:
+#         - !Ref PrivateSubnet
+#       SecurityGroupIds:
+#         - !Ref VPCEndpointSecurityGroup
+#       ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sagemaker.runtime'
+#       VpcId: !Ref LakeFormationVPC
+#   VPCEndpointSTS:
+#     Type: 'AWS::EC2::VPCEndpoint'
+#     Properties:
+#       PolicyDocument:
+#         Version: 2012-10-17
+#         Statement:
+#           - Effect: Allow
+#             Principal: '*'
+#             Action: '*'
+#             Resource: '*'
+#       VpcEndpointType: Interface
+#       PrivateDnsEnabled: true
+#       SubnetIds:
+#         - !Ref PrivateSubnet
+#       SecurityGroupIds:
+#         - !Ref VPCEndpointSecurityGroup
+#       ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sts'
+#       VpcId: !Ref LakeFormationVPC
+#   VPCEndpointCW:
+#     Type: 'AWS::EC2::VPCEndpoint'
+#     Properties:
+#       PolicyDocument:
+#         Version: 2012-10-17
+#         Statement:
+#           - Effect: Allow
+#             Principal: '*'
+#             Action: '*'
+#             Resource: '*'
+#       VpcEndpointType: Interface
+#       PrivateDnsEnabled: true
+#       SubnetIds:
+#         - !Ref PrivateSubnet
+#       SecurityGroupIds:
+#         - !Ref VPCEndpointSecurityGroup
+#       ServiceName: !Sub 'com.amazonaws.${AWS::Region}.monitoring'
+#       VpcId: !Ref LakeFormationVPC
+#   VPCEndpointCWL:
+#     Type: 'AWS::EC2::VPCEndpoint'
+#     Properties:
+#       PolicyDocument:
+#         Version: 2012-10-17
+#         Statement:
+#           - Effect: Allow
+#             Principal: '*'
+#             Action: '*'
+#             Resource: '*'
+#       VpcEndpointType: Interface
+#       PrivateDnsEnabled: true
+#       SubnetIds:
+#         - !Ref PrivateSubnet
+#       SecurityGroupIds:
+#         - !Ref VPCEndpointSecurityGroup
+#       ServiceName: !Sub 'com.amazonaws.${AWS::Region}.logs'
+#       VpcId: !Ref LakeFormationVPC
+#   VPCEndpointECR:
+#     Type: 'AWS::EC2::VPCEndpoint'
+#     Properties:
+#       PolicyDocument:
+#         Version: 2012-10-17
+#         Statement:
+#           - Effect: Allow
+#             Principal: '*'
+#             Action: '*'
+#             Resource: '*'
+#       VpcEndpointType: Interface
+#       PrivateDnsEnabled: true
+#       SubnetIds:
+#         - !Ref PrivateSubnet
+#       SecurityGroupIds:
+#         - !Ref VPCEndpointSecurityGroup
+#       ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.dkr'
+#       VpcId: !Ref LakeFormationVPC
+#   VPCEndpointECRAPI:
+#     Type: 'AWS::EC2::VPCEndpoint'
+#     Properties:
+#       PolicyDocument:
+#         Version: 2012-10-17
+#         Statement:
+#           - Effect: Allow
+#             Principal: '*'
+#             Action: '*'
+#             Resource: '*'
+#       VpcEndpointType: Interface
+#       PrivateDnsEnabled: true
+#       SubnetIds:
+#         - !Ref PrivateSubnet
+#       SecurityGroupIds:
+#         - !Ref VPCEndpointSecurityGroup
+#       ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.api'
+#       VpcId: !Ref LakeFormationVPC
+#   SageMakerInstanceSecurityGroup:
+#     Type: 'AWS::EC2::SecurityGroup'
+#     Properties:
+#       GroupName: SageMaker-SecurityGroup
+#       GroupDescription: Security group with no ingress rule
+#       SecurityGroupEgress:
+#         - IpProtocol: -1
+#           FromPort: -1
+#           ToPort: -1
+#           CidrIp: 0.0.0.0/0
+#       VpcId: !Ref LakeFormationVPC
+#   SageMakerInstanceSecurityGroupIngress:
+#     Type: 'AWS::EC2::SecurityGroupIngress'
+#     Properties:
+#       IpProtocol: '-1'
+#       GroupId: !Ref SageMakerInstanceSecurityGroup
+#       SourceSecurityGroupId: !Ref SageMakerInstanceSecurityGroup
+#   VPCEndpointSecurityGroup:
+#     Type: 'AWS::EC2::SecurityGroup'
+#     Properties:
+#       GroupDescription: Allow TLS for VPC Endpoint
+#       SecurityGroupEgress:
+#         - IpProtocol: -1
+#           FromPort: -1
+#           ToPort: -1
+#           CidrIp: 0.0.0.0/0
+#       VpcId: !Ref LakeFormationVPC
+#       Tags:
+#         - Key: Name
+#           Value: !Sub '${AWS::StackName}-endpoint-security-group'
+#   EndpointSecurityGroupIngress:
+#     Type: 'AWS::EC2::SecurityGroupIngress'
+#     Properties:
+#       IpProtocol: '-1'
+#       GroupId: !Ref VPCEndpointSecurityGroup
+#       SourceSecurityGroupId: !Ref SageMakerInstanceSecurityGroup
+# Outputs:
+#   LFDataLakeBucketName:
+#     Description: Lake Formation Data Lake Bucket Name
+#     Value: !Ref DataLakeBucket
+#   LFWorkshopBucketName:
+#     Description: Lake Formation Workshop Bucket Name
+#     Value: !Ref LFWorkshopBucket
+#   AthenaQueryResultLocation:
+#     Description: Athena Query Result Location
+#     Value: !Join 
+#       - ''
+#       - - 's3://'
+#         - !Ref LFWorkshopBucket
+#         - /athena-results/
+#   MetadataLocation:
+#     Description: Metadata Location
+#     Value: !Join 
+#       - ''
+#       - - 's3://'
+#         - !Ref LFWorkshopBucket
+#         - /metadata
+#   LFUsersCredentials:
+#     Description: AWS Secrets Manager Secret Name for all workshop users credentials
+#     Value: !Sub >-
+#       https://${AWS::Region}.console.aws.amazon.com/secretsmanager/secret?name=${AWS::StackName}-lf-users-credentials
+#   ADFSUsersCredentials:
+#     Description: AWS Secrets Manager Secret Name for all ADFS users credentials
+#     Value: !Sub >-
+#       https://${AWS::Region}.console.aws.amazon.com/secretsmanager/secret?name=${AWS::StackName}-adfs-users-credentials
+#   ConsoleIAMLoginUrl:
+#     Description: Console IAM Login URL to try out different users
+#     Value: !Join 
+#       - ''
+#       - - 'https://'
+#         - !Ref 'AWS::AccountId'
+#         - .signin.aws.amazon.com/console

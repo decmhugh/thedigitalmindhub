@@ -1,0 +1,125 @@
+Transform: AWS::Serverless-2016-10-31
+Parameters:
+  StageName:
+    Type: String
+    Default: production
+    Description: The stage name for the API Gateway.
+
+Resources:
+  RestApi:
+    Type: AWS::Serverless::Api  
+    Properties:
+      Name: MyServerlessApi
+      StageName: default
+      Auth:
+        DefaultAuthorizer: LambdaAuthorizer
+        Authorizers:
+          LambdaAuthorizer:
+            FunctionArn: !GetAtt LambdaAuthorizerFunction.Arn
+            IdentitySource: method.request.header.Authorization
+            FunctionPayloadType: REQUEST
+            Identity:
+              Headers:
+                - Authorization
+      AccessLogSetting:
+        DestinationArn: !GetAtt ApiGatewayLogGroup.Arn
+        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","caller":"$context.identity.caller","user":"$context.identity.user","requestTime":"$context.requestTime","httpMethod":"$context.httpMethod","resourcePath":"$context.resourcePath","status":"$context.status","protocol":"$context.protocol","responseLength":"$context.responseLength"}'
+
+  ApiGatewayLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/apigateway/MyServerlessApi
+      RetentionInDays: 14
+
+  APIGatewayCloudWatchLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: APIGatewayLogsPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:*
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/apigateway/*:*"
+
+  LambdaAuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-LambdaAuthorizerFunction"
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      CodeUri: functions/lambdas/auth/
+      Role: !GetAtt LambdaExecutionRole.Arn
+
+  LambdaAuthorizerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt LambdaAuthorizerFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*/*"
+
+  AudioKinesisStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: AudioStream
+      ShardCount: 1
+
+  AudioProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-AudioProcessorFunction"
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      CodeUri: functions/lambdas/audio/
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          KINESIS_STREAM_NAME: !Ref AudioKinesisStream
+
+  AudioProcessorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt AudioProcessorFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/POST/audio"
+
+  AudioApiIntegration:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: AudioApi
+      StageName: !Ref StageName
+      DefinitionBody:
+        Fn::Transform:
+          Name: AWS::Include
+          Parameters:
+            Location: !Sub "s3://${AWS::Region}-${AWS::AccountId}-api-definitions/audio-api.yaml"
+
+  AudioApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: audio
+      RestApiId: !Ref RestApi
+
+  AudioApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: POST
+      ResourceId: !Ref AudioApiResource
+      RestApiId: !Ref RestApi
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AudioProcessorFunction.Arn}/invocations"

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Example</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <h1>WebSocket Connection</h1>
+    <div id="messages"></div>
+    <button id="sendMessage">Send Message</button>
+    <button id="startRecording">Start Recording</button>
+    <button id="stopRecording" disabled>Stop Recording</button>
+
+    <script>
+        $(document).ready(function () {
+            const apiKey = 'ZC1iOriUNJbUTf0nb0q4USfZLIwh855mvpIhv7b0'; // Replace with your actual API key
+            const socket = new WebSocket('wss://mqmdt7xebl.execute-api.eu-west-1.amazonaws.com/dev/');
+
+            socket.onopen = function () {
+                $('#messages').append('<p>WebSocket connection established.</p>');
+            };
+
+            socket.onerror = function (error) {
+                $('#messages').append('<p>Error occurred: ' + error + '</p>');
+            };
+
+            socket.onmessage = function (event) {
+                
+
+                $('#messages').append('<p>Message received: ' + event.data + '</p>');
+            };
+
+            socket.onclose = function () {
+                $('#messages').append('<p>WebSocket connection closed.</p>');
+            };
+
+            $('#sendMessage').click(function () {
+                if (socket.readyState === WebSocket.OPEN) {
+                        const message = 'Hello, WebSocket!';
+                        var payload = {
+                            action: 'audio2',  // e.g., "sendMessage", "updateStatus", etc.
+                            data: message
+                        };
+                        socket.send(JSON.stringify(payload));
+                        
+                    
+                    //socket.send(message);
+                    $('#messages').append('<p>Message sent: ' + message + '</p>');
+                } else {
+                    $('#messages').append('<p>WebSocket is not open.</p>');
+                }
+            });
+
+            let mediaRecorder;
+            let audioChunks = [];
+
+            $('#startRecording').click(async function () {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+
+                    mediaRecorder.ondataavailable = function (event) {
+                        audioChunks.push(event.data);
+                        var payload = {
+                            action: 'audio2',  // e.g., "sendMessage", "updateStatus", etc.
+                            data: event.data
+                        };
+                        
+                        socket.send(JSON.stringify(payload));
+                        console.log('Audio data sent...');
+                        
+                    };
+
+                    mediaRecorder.onstop = function () {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        if (socket.readyState === WebSocket.OPEN) {
+                            var payload = {
+                                action: 'audio2',  // e.g., "sendMessage", "updateStatus", etc.
+                                data: audioBlob
+                            };
+                            socket.send(JSON.stringify(payload));
+                            
+                            $('#messages').append('<p>Audio data sent to WebSocket.</p>');
+                        } else {
+                            $('#messages').append('<p>WebSocket is not open. Audio data not sent.</p>');
+                        }
+                        audioChunks = [];
+                    };
+
+                    mediaRecorder.start();
+                    $('#startRecording').prop('disabled', true);
+                    $('#stopRecording').prop('disabled', false);
+                    $('#messages').append('<p>Recording started.</p>');
+                } catch (error) {
+                    $('#messages').append('<p>Error accessing microphone: ' + error.message + '</p>');
+                }
+            });
+
+            $('#stopRecording').click(function () {
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                    $('#startRecording').prop('disabled', false);
+                    $('#stopRecording').prop('disabled', true);
+                    $('#messages').append('<p>Recording stopped.</p>');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

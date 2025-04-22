@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Live Audio Transcription</title>
+</head>
+<body>
+  <h1>Real-time Transcription Demo</h1>
+  <button onclick="startAudio()">Start Streaming</button>
+  <pre id="transcript"></pre>
+
+  <script>
+    let ws;
+    let audioContext;
+    let processor;
+
+    function convertFloat32ToInt16(buffer) {
+      let l = buffer.length;
+      const buf = new Int16Array(l);
+      while (l--) {
+        buf[l] = Math.min(1, buffer[l]) * 0x7FFF;
+      }
+      return buf;
+    }
+
+    function sendAudio(int16Buffer) {
+      const uint8View = new Uint8Array(int16Buffer.buffer);
+      const base64Data = btoa(String.fromCharCode.apply(null, uint8View));
+
+      ws.send(JSON.stringify({
+        action: 'sendAudio',
+        audioData: base64Data
+      }));
+    }
+
+    async function startAudio() {
+      ws = new WebSocket('wss://mqmdt7xebl.execute-api.eu-west-1.amazonaws.com/dev/');
+
+      ws.onopen = () => console.log('WebSocket Connected');
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioContext.createMediaStreamSource(stream);
+
+      processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processor.onaudioprocess = function(e) {
+        const float32Data = e.inputBuffer.getChannelData(0);
+        const int16Data = convertFloat32ToInt16(float32Data);
+        sendAudio(JSON.stringify({
+            "audioData": int16Data
+          }));
+      };
+
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+    }
+  </script>
+</body>
+</html>

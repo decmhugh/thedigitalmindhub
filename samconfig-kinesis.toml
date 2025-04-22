@@ -1,0 +1,10 @@
+version = 0.1
+
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "dmh-serverless-kinesis-stack"
+region = "eu-west-1"
+capabilities = ["CAPABILITY_IAM"]
+s3_prefix = "dmh-serverless-voice-stack"
+s3_bucket = "dmh-prod1-deploy-bucket"
